@@ -26,14 +26,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include "FCNTL.H"
-//#include "STAT.H"
-//#include "IO.H"
 #include <string.h>
 #include <setjmp.h>
-//#include "IOCSLIB.H"
-//#include "DOSLIB.H"
-#include "ARIMAC.H"
+#define _LITTLE_ENDIAN 1    //Modern computers are usually little endian
+#include "ENDIAN.H"
+typedef unsigned char  uchar ;
+typedef unsigned short ushort ;
+typedef unsigned int  ulongg ;
+
+#define numberof(x) ( sizeof ( x ) / sizeof ( * ( x ) ) )
+
 #pragma pack(push, 1)
 
 /* ---------------------------------------------------------------- */
@@ -867,7 +869,7 @@ static void x_conv_palette ( int cl_bit1 )
   cl_cnt2 = ( 1 << cl_bit1 ) - cl_cnt1 ;
 
   while ( cl_cnt1 -- ) {
-    bit_write ( 16 , swap_ushort( RGB ( rgb_pt1 -> rgbRed   >> 3 ,
+    bit_write ( 16 , ( RGB ( rgb_pt1 -> rgbRed   >> 3 ,
                            rgb_pt1 -> rgbGreen >> 3 ,
                            rgb_pt1 -> rgbBlue  >> 3 ) - 1 )) ;
     rgb_pt1 ++ ;
@@ -1791,13 +1793,6 @@ static void x_flush_buff ( void )
   }
 }
 
-// static ulongg swap_ulongg(ulongg bigend){
-//   ulongg lilend =   ((bigend>>24)&0xff) | // move byte 3 to byte 0
-//                     ((bigend<<8)&0xff0000) | // move byte 1 to byte 2
-//                     ((bigend>>8)&0xff00) | // move byte 2 to byte 1
-//                     ((bigend<<24)&0xff000000); // byte 0 to byte 3
-//   return lilend;
-// }
 //! Byte swap unsigned short
 ushort swap_ushort( ushort val ) 
 {
