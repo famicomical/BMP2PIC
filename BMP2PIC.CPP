@@ -28,11 +28,11 @@
 #include <stddef.h>
 #include <string.h>
 #include <setjmp.h>
-#define _LITTLE_ENDIAN 1    //Modern computers are usually little endian
-#include "ENDIAN.H"
 typedef unsigned char  uchar ;
 typedef unsigned short ushort ;
-typedef unsigned int  ulongg ;
+typedef unsigned int  uint ;
+#define _LITTLE_ENDIAN 1    //Modern computers are usually little endian
+#include "ENDIAN.H"
 
 #define numberof(x) ( sizeof ( x ) / sizeof ( * ( x ) ) )
 
@@ -52,10 +52,10 @@ typedef ushort PIXEL ;
 
 typedef struct {
   ushort bfType ;
-  ulongg  bfSize ;
+  uint  bfSize ;
   ushort bfReserved1 ;
   ushort bfReserved2 ;
-  ulongg  bfOffBits ;
+  uint  bfOffBits ;
 } BITMAP_FILE_HEADER ;
 
 static char bmp_fil_hdr_swap [ ] = {
@@ -66,17 +66,17 @@ static char bmp_fil_hdr_swap [ ] = {
 /* ---------------------------------------------------------------- */
 
 typedef struct {
-  ulongg  biSize ;
-  ulongg  biWidth ;
-  ulongg  biHeight ;
+  uint  biSize ;
+  uint  biWidth ;
+  uint  biHeight ;
   ushort biPlanes ;
   ushort biBitCount ;
-  ulongg  biCompression ;
-  ulongg  biSizeImage ;
-  ulongg  biXPelsPerMeter ;
-  ulongg  biYPelsPerMeter ;
-  ulongg  biClrUsed ;
-  ulongg  biClrImportant ;
+  uint  biCompression ;
+  uint  biSizeImage ;
+  uint  biXPelsPerMeter ;
+  uint  biYPelsPerMeter ;
+  uint  biClrUsed ;
+  uint  biClrImportant ;
 } BITMAP_INFO_HEADER ;
 
 static char bmp_inf_hdr_swap [ ] = {
@@ -163,12 +163,12 @@ static void write_len ( int n ) ;
 static void write_color15 ( PIXEL cl1 ) ;
 static int search_col ( PIXEL cl1 ) ;
 static void set_color ( int ix1 ) ;
-static void bit_write ( int wlen1 , ulongg wdata1 ) ;
+static void bit_write ( int wlen1 , uint wdata1 ) ;
 static void x_flush_buff ( void ) ;
-static ulongg swap_ulongg(ulongg bigend);
-static ushort swap_ushort(ushort bigend);
-static short swap_short(short bigend);
-static int swap_int(int bigend);
+// static uint swap_uint(uint bigend);
+// static ushort swap_ushort(ushort bigend);
+// static short swap_short(short bigend);
+// static int swap_int(int bigend);
 
 /* ---------------------------------------------------------------- */
 
@@ -188,16 +188,16 @@ static BITMAP_INFO_HEADER bmp_inf_hdr ;
 
 static int buf_xb1 , buf_yl1 ;
 static int edge_xb1 ;
-static ulongg edge_sz1 ;
+static uint edge_sz1 ;
 
 static char * pic_fname_pt1 ;
 static int pic_fh ;
 static FILE* pic_f;
 static int bit_len ;
 static int buff_len ;
-static ulongg pic_bit_data ;
-static ulongg * pic_put_pt ;
-static ulongg pic_buf [ 2048 ] ;
+static uint pic_bit_data ;
+static uint * pic_put_pt ;
+static uint pic_buf [ 2048 ] ;
 
 static jmp_buf wenv1 ;
 
@@ -529,8 +529,8 @@ static void x_swap_bytes ( void * buf_pt1 , char * ctl_pt1 , int cnt1 )
 static int x_bmp_pic_conv1 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  ulongg img_xl1 , img_yl1 ;
-  ulongg buf_sz1 ;
+  uint img_xl1 , img_yl1 ;
+  uint buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf8 = NULL ;
@@ -601,8 +601,8 @@ lb800 :
 static int x_bmp_pic_conv4 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  ulongg img_xl1 , img_yl1 ;
-  ulongg buf_sz1 ;
+  uint img_xl1 , img_yl1 ;
+  uint buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf8 = NULL ;
@@ -673,8 +673,8 @@ lb800 :
 static int x_bmp_pic_conv8 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  ulongg img_xl1 , img_yl1 ;
-  ulongg buf_sz1 ;
+  uint img_xl1 , img_yl1 ;
+  uint buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf8 = NULL ;
@@ -744,8 +744,8 @@ lb800 :
 static int x_bmp_pic_conv24 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  ulongg img_xl1 , img_yl1 ;
-  ulongg buf_sz1 ;
+  uint img_xl1 , img_yl1 ;
+  uint buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf16 = NULL ;
@@ -882,7 +882,7 @@ static void x_conv_palette ( int cl_bit1 )
 
 static void x_read_bmp_image8 ( int oy1 , int syl1 )
 {
-  ulongg wlen1 ;
+  uint wlen1 ;
 
   if ( fseek ( bmp_f , bmp_fil_hdr . bfOffBits +
                buf_xb1 * ( bmp_inf_hdr . biHeight - oy1 - syl1 ) ,
@@ -908,7 +908,7 @@ lb800 :
 static void x_mark_diff_point1 ( int oy1 , int syl1 )
 {
   int sy1 , bx1 , xcnt1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl1 , cl2 , wch1 , wedge1 , wverbose1 ;
   char * edge_map_pt1 ;
   char * img_buf_pt1 ;
@@ -951,7 +951,7 @@ static void x_mark_diff_point1 ( int oy1 , int syl1 )
 static void x_compress1 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl1 , wedge1 , wmask1 , wverbose1 ;
   int wlen1 ;
   char * edge_map_pt1 ;
@@ -1015,7 +1015,7 @@ static void x_compress_chain1 ( int sx1 , int sy1 ,
     char * edge_map_pt1 , char * img_buf_pt1 , char cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char wmask1 ;
 
   fsw1 = 0 ;
@@ -1074,7 +1074,7 @@ static void x_compress_chain1 ( int sx1 , int sy1 ,
 static void x_mark_diff_point4 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , xcnt1 , bx1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl1 , cl2 , wch1 , wverbose1 ;
   char * edge_map_pt1 ;
   char * img_buf_pt1 ;
@@ -1128,7 +1128,7 @@ static void x_mark_diff_point4 ( int oy1 , int syl1 )
 static void x_compress4 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl1 , wedge1 , wmask1 , wverbose1 ;
   int wlen1 ;
   char * edge_map_pt1 ;
@@ -1204,7 +1204,7 @@ static void x_compress_chain4 ( int sx1 , int sy1 ,
     char * edge_map_pt1 , char * img_buf_pt1 , char cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl_mask1 , cl2 ;
 
   if ( ( sx1 & 1 ) == 0 ) {
@@ -1269,7 +1269,7 @@ static void x_compress_chain4 ( int sx1 , int sy1 ,
 static void x_mark_diff_point8 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl1 , cl2 , wverbose1 ;
   char * edge_map_pt1 ;
   char * img_buf_pt1 ;
@@ -1302,7 +1302,7 @@ static void x_mark_diff_point8 ( int oy1 , int syl1 )
 static void x_compress8 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   char cl1 , wedge1 , wmask1 , wverbose1 ;
   int wlen1 ;
   char * edge_map_pt1 ;
@@ -1366,7 +1366,7 @@ static void x_compress_chain8 ( int sx1 , int sy1 ,
     char * edge_map_pt1 , char * img_buf_pt1 , char cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
 
   fsw1 = 0 ;
   img_xl1 = bmp_inf_hdr . biWidth ;
@@ -1422,7 +1422,7 @@ static void x_compress_chain8 ( int sx1 , int sy1 ,
 
 static void x_read_bmp_image24 ( int oy1 , int syl1 )
 {
-  ulongg img_xl1 , bmp_xb1 ;
+  uint img_xl1 , bmp_xb1 ;
   char * bmp_buf1 ;
   PIXEL * img_pt1 ;
 
@@ -1507,7 +1507,7 @@ static void x_init_color_cash ( void )
 static void x_mark_diff_point16 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   PIXEL cl1 , cl2 ;
   char wverbose1 ;
   char * edge_map_pt1 ;
@@ -1541,7 +1541,7 @@ static void x_mark_diff_point16 ( int oy1 , int syl1 )
 static void x_compress15 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
   PIXEL cl1 ;
   char wedge1 , wmask1 , wverbose1 ;
   int wlen1 ;
@@ -1606,7 +1606,7 @@ static void x_compress_chain15 ( int sx1 , int sy1 ,
     char * edge_map_pt1 , PIXEL * img_buf_pt1 , PIXEL cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  ulongg img_xl1 ;
+  uint img_xl1 ;
 
   fsw1 = 0 ;
   img_xl1 = bmp_inf_hdr . biWidth ;
@@ -1737,13 +1737,13 @@ static void set_color ( int ix1 )
 
 /* ---------------------------------------------------------------- */
 //THIS FUNCTION HAS BEEN FIXED
-static void bit_write ( int wlen1 , ulongg wdata1 )
+static void bit_write ( int wlen1 , uint wdata1 )
 {
 /*  wdata1 &= ( 1 << wlen1 ) - 1 ;  */
 
   if ( wlen1 >= bit_len ) {
 
-    * pic_put_pt ++ = swap_ulongg(( pic_bit_data << bit_len ) | ( wdata1 >> ( wlen1 - bit_len ) )) ;
+    * pic_put_pt ++ = swap_uint(( pic_bit_data << bit_len ) | ( wdata1 >> ( wlen1 - bit_len ) )) ;
     // unsigned int off =wlen1-bit_len;
     // * pic_put_pt ++ = ( pic_bit_data ) | ( wdata1 << ( 32-bit_len ) );
     // pic_bit_data=0;
@@ -1779,7 +1779,7 @@ static void x_flush_buff ( void )
   int wlen1 ;
 
   if ( bit_len < 32 ) {
-    * pic_put_pt = swap_ulongg( pic_bit_data << bit_len) ;
+    * pic_put_pt = swap_uint( pic_bit_data << bit_len) ;
   }
 
   wlen1 = ( numberof ( pic_buf ) - buff_len ) * sizeof ( * pic_buf ) +
@@ -1793,30 +1793,6 @@ static void x_flush_buff ( void )
   }
 }
 
-//! Byte swap unsigned short
-ushort swap_ushort( ushort val ) 
-{
-    return (val << 8) | (val >> 8 );
-}
 
-//! Byte swap short
-short swap_short( short val ) 
-{
-    return (val << 8) | ((val >> 8) & 0xFF);
-}
-
-//! Byte swap unsigned int
-ulongg swap_ulongg( ulongg val )
-{
-    val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF ); 
-    return (val << 16) | (val >> 16);
-}
-
-//! Byte swap int
-int swap_int( int val )
-{
-    val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF ); 
-    return (val << 16) | ((val >> 16) & 0xFFFF);
-}
 
 /* ---------------------------------------------------------------- */

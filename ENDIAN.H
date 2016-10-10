@@ -1,6 +1,7 @@
 // Portable Byte Ordering in C++
 // by Philip J. Erdelsky
 // Public Domain -- No Restrictions on Use
+// Modified/Expanded by Rony Ballouz
 
 // If the byte order of the target machine is known, include ONE of
 // the following statements:
@@ -16,11 +17,11 @@
 
 typedef unsigned char BYTE;
 typedef unsigned short WORD; // two-byte word
-typedef unsigned long DWORD; // four-byte double word
+typedef unsigned int DWORD; // four-byte double word
 
 #ifdef _RUN_TIME_ENDIAN
 
-  extern union_endian_union
+  extern struct union_endian_union
   {
     DWORD whole;
     WORD half[2];
@@ -60,20 +61,25 @@ class BEWORD  // big endian WORD
    {
      #ifdef _BIG_ENDIAN
        x.whole = n;
+       *((WORD*)x.half)=n;
      #else
        #ifdef _RUN_TIME_ENDIAN
-         if (big_endian()) x.whole = n;
+         if (big_endian()) {
+         	x.whole = n;
+	       *((WORD*)x.half)=n;	
+         }
          else {
        #endif
        x.half[0] = n >> 8;
        x.half[1] = n;
+       x.whole = *((WORD*)(x.half));
        #ifdef _RUN_TIME_ENDIAN
          }
        #endif
      #endif
    }
    BEWORD(WORD n) {set(n);}
-   WORD value(void)
+   WORD val(void)
    {
      return
        #ifdef _BIG_ENDIAN
@@ -85,6 +91,9 @@ class BEWORD  // big endian WORD
        x.half[0] << 8 | x.half[1]
      #endif
        ;
+   }
+   DWORD whole(void){
+   	return x.whole;
    }
    int zero(void) {return x.whole == 0;}
    int nonzero(void) {return x.whole != 0;}
@@ -104,22 +113,27 @@ class BEDWORD  // big endian DWORD
    {
      #ifdef _BIG_ENDIAN
        x.whole = n;
+       *((DWORD*)x.quarter)=n;
      #else
        #ifdef _RUN_TIME_ENDIAN
-         if (big_endian()) x.whole = n;
+         if (big_endian()) {
+         	x.whole = n;
+         	*((DWORD*)x.quarter)=n;
+         }
          else{
        #endif
        x.quarter[0] = n >> 24;
        x.quarter[1] = n >> 16;
        x.quarter[2] = n >> 8;
        x.quarter[3] = n;
+       x.whole = *((DWORD*)(x.quarter));
        #ifdef _RUN_TIME_ENDIAN
          }
        #endif
      #endif
    }
    BEDWORD(DWORD n) {set(n);}
-   DWORD value(void)
+   DWORD val(void)
    {
      return
        #ifdef _BIG_ENDIAN
@@ -132,6 +146,9 @@ class BEDWORD  // big endian DWORD
           x.quarter[2] << 8 | x.quarter[3];
      #endif
        ;
+   }
+   DWORD whole(void){
+   	return x.whole;
    }
    int zero(void) {return x.whole == 0;}
    int nonzero(void) {return x.whole != 0;}
@@ -151,20 +168,25 @@ class LEWORD  // little endian WORD
    {
      #ifdef _LITTLE_ENDIAN
        x.whole = n;
+       *((WORD*)x.half)=n;
      #else
        #ifdef _RUN_TIME_ENDIAN
-         if (little_endian()) x.whole = n;
+         if (little_endian()){
+         	x.whole = n;
+         	*((WORD*)x.half)=n;
+         }
          else {
        #endif
        x.half[1] = n >> 8;
        x.half[0] = n;
+       x.whole = *((WORD*)(x.half));
        #ifdef _RUN_TIME_ENDIAN
          }
        #endif
      #endif
    }
    LEWORD(WORD n) {set(n);}
-   WORD value(void)
+   WORD val(void)
    {
      return
        #ifdef _LITTLE_ENDIAN
@@ -176,6 +198,9 @@ class LEWORD  // little endian WORD
          x.half[1] << 8 | x.half[0]
        #endif
          ;
+   }
+   DWORD whole(void){
+   	return x.whole;
    }
    int zero(void) {return x.whole == 0;}
    int nonzero(void) {return x.whole != 0;}
@@ -195,22 +220,27 @@ class LEDWORD  // little endian DWORD
    {
      #ifdef _LITTLE_ENDIAN
        x.whole = n;
+       *((DWORD*)x.quarter)=n;
      #else
        #ifdef _RUN_TIME_ENDIAN
-         if (little_endian()) x.whole = n;
+         if (little_endian()){
+          x.whole = n;
+          *((DWORD*)x.quarter)=n;
+      	 }
          else {
        #endif
        x.quarter[0] = n;
        x.quarter[1] = n >> 8;
        x.quarter[2] = n >> 16;
        x.quarter[3] = n >> 24;
+       x.whole = *((DWORD*)(x.quarter));
        #ifdef _RUN_TIME_ENDIAN
          }
        #endif
      #endif
    }
    LEDWORD(DWORD n) {set(n);}
-   DWORD value(void)
+   DWORD val(void)
    {
      return
        #ifdef _LITTLE_ENDIAN
@@ -224,11 +254,40 @@ class LEDWORD  // little endian DWORD
        #endif
          ;
    }
+   DWORD whole(void){
+   	return x.whole;
+   }
    int zero(void) {return x.whole == 0;}
    int nonzero(void) {return x.whole != 0;}
    int operator == (LEDWORD &n) {return x.whole == n.x.whole;}
    int operator != (LEDWORD &n) {return x.whole != n.x.whole;}
 };
+
+//! Byte swap unsigned short
+ushort swap_ushort( ushort val ) 
+{
+    return (val << 8) | (val >> 8 );
+}
+
+//! Byte swap short
+short swap_short( short val ) 
+{
+    return (val << 8) | ((val >> 8) & 0xFF);
+}
+
+//! Byte swap unsigned int
+uint swap_uint( uint val )
+{
+    val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF ); 
+    return (val << 16) | (val >> 16);
+}
+
+//! Byte swap int
+int swap_int( int val )
+{
+    val = ((val << 8) & 0xFF00FF00) | ((val >> 8) & 0xFF00FF ); 
+    return (val << 16) | ((val >> 16) & 0xFFFF);
+}
 
 #endif
 /* End of File */
