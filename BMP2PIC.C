@@ -1,42 +1,45 @@
 /* ----------------------------------------------------------------- *
-* PROGRAM-ID.	BMP2PIC.C					     *
-* AUTHOR.	ARIMAC.						     *
-* DATE-WRITTEN.	1994.05.30					     *
-* REMARKS.							     *
-*								     *
-*　・MS-Windows の BMP ファイルを PIC ファイルに変換する。	     *
-*　・ただし、２／１６／２５６／１６７８万色非圧縮のファイルのみ	     *
-*　　対応。							     *
-*								     *
-* HISTORY.							     *
-*								     *
-*　 1994.05.30	v0.01 誕生					     *
-*								     *
-*　 1994.08.23	v0.02 出力先ディレクトリを指定出来るようにした。     *
-*		      512ライン超え分割画像のエッジマップの初期化を  *
-*		      忘れていた。				     *
-*								     *
-*　 1994.09.21	v0.03 エラーになったファイルは無視するようにした。   *
-*		      変換中のラインが分かるようにした。	     *
-*		      ２色画像の変化点の探査を失敗してた(^^;	     *
-*		      高速化。					     *
-*								     *
+* PROGRAM-ID. BMP2PIC.C              *
+* AUTHOR. ARIMAC.                *
+* DATE-WRITTEN. 1994.05.30               *
+* REMARKS.                   *
+*                    *
+*　・MS-Windows の BMP ファイルを PIC ファイルに変換する。       *
+*　・ただし、２／１６／２５６／１６７８万色非圧縮のファイルのみ       *
+*　　対応。                   *
+*                    *
+* HISTORY.                   *
+*                    *
+*　 1994.05.30 v0.01 誕生               *
+*                    *
+*　 1994.08.23 v0.02 出力先ディレクトリを指定出来るようにした。     *
+*         512ライン超え分割画像のエッジマップの初期化を  *
+*         忘れていた。             *
+*                    *
+*　 1994.09.21 v0.03 エラーになったファイルは無視するようにした。   *
+*         変換中のラインが分かるようにした。      *
+*         ２色画像の変化点の探査を失敗してた(^^;      *
+*         高速化。               *
+*                    *
 * ----------------------------------------------------------------- */
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stddef.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <string.h>
+#include <stddef.h>
 #include <setjmp.h>
-typedef unsigned char  uchar ;
-typedef unsigned short ushort ;
-typedef unsigned int  uint ;
-#define _LITTLE_ENDIAN 1    //Modern computers are usually little endian
-#include "ENDIAN.H"
+#include <time.h>
+#include "ARIMAC.H"
 
-#define numberof(x) ( sizeof ( x ) / sizeof ( * ( x ) ) )
-
-#pragma pack(push, 1)
+/* X68000 compatibility shims */
+#define jstrrchr(s, c) ((uchar *)strrchr((char *)(s), (c)))
+#define jstrchr(s, c) ((uchar *)strchr((char *)(s), (c)))
+#define O_BINARY 0
+#define getft(fh) 0
+#define chgft(fh, date) ((void)0)
 
 /* ---------------------------------------------------------------- */
 
@@ -52,13 +55,13 @@ typedef ushort PIXEL ;
 
 typedef struct {
   ushort bfType ;
-  uint  bfSize ;
+  ulong  bfSize ;
   ushort bfReserved1 ;
   ushort bfReserved2 ;
-  uint  bfOffBits ;
-} BITMAP_FILE_HEADER ;
+  ulong  bfOffBits ;
+} __attribute__((packed)) BITMAP_FILE_HEADER ;
 
-static char bmp_fil_hdr_swap [ ] = {
+static uchar bmp_fil_hdr_swap [ ] = {
   swap_parm ( BITMAP_FILE_HEADER , bfSize    ) ,
   swap_parm ( BITMAP_FILE_HEADER , bfOffBits ) ,
 } ;
@@ -66,20 +69,20 @@ static char bmp_fil_hdr_swap [ ] = {
 /* ---------------------------------------------------------------- */
 
 typedef struct {
-  uint  biSize ;
-  uint  biWidth ;
-  uint  biHeight ;
+  ulong  biSize ;
+  ulong  biWidth ;
+  ulong  biHeight ;
   ushort biPlanes ;
   ushort biBitCount ;
-  uint  biCompression ;
-  uint  biSizeImage ;
-  uint  biXPelsPerMeter ;
-  uint  biYPelsPerMeter ;
-  uint  biClrUsed ;
-  uint  biClrImportant ;
-} BITMAP_INFO_HEADER ;
+  ulong  biCompression ;
+  ulong  biSizeImage ;
+  ulong  biXPelsPerMeter ;
+  ulong  biYPelsPerMeter ;
+  ulong  biClrUsed ;
+  ulong  biClrImportant ;
+} __attribute__((packed)) BITMAP_INFO_HEADER ;
 
-static char bmp_inf_hdr_swap [ ] = {
+static uchar bmp_inf_hdr_swap [ ] = {
   swap_parm ( BITMAP_INFO_HEADER , biSize          ) ,
   swap_parm ( BITMAP_INFO_HEADER , biWidth         ) ,
   swap_parm ( BITMAP_INFO_HEADER , biHeight        ) ,
@@ -96,30 +99,30 @@ static char bmp_inf_hdr_swap [ ] = {
 /* ---------------------------------------------------------------- */
 
 typedef struct {
-  char rgbBlue ;
-  char rgbGreen ;
-  char rgbRed ;
-  char rgbReserved ;
-} RGB_QUAD ;
+  uchar rgbBlue ;
+  uchar rgbGreen ;
+  uchar rgbRed ;
+  uchar rgbReserved ;
+} __attribute__((packed)) RGB_QUAD ;
 
 /* ---------------------------------------------------------------- */
 
 static struct CL_CACHE {
   PIXEL color ;
-  char next ;
-  char prev ;
+  uchar next ;
+  uchar prev ;
 } cl_cache [ 128 ] ;
 
 static int cur_cl_ix ;
 
 /* ---------------------------------------------------------------- */
 
-static int x_arg_chk ( int argc , char * argv [ ] ) ;
-static void x_print_help ( int argc , char * argv [ ] ) ;
-static int x_file_proc ( char * fname_pt1 ) ;
+static int x_arg_chk ( int argc , uchar * argv [ ] ) ;
+static void x_print_help ( int argc , uchar * argv [ ] ) ;
+static int x_file_proc ( uchar * fname_pt1 ) ;
 
-static int x_bmp_pic_conv ( char * fname_pt1 , int dir_len1 ) ;
-static void x_swap_bytes ( void * buf_pt1 , char * ctl_pt1 , int cnt1 ) ;
+static int x_bmp_pic_conv ( uchar * fname_pt1 , int dir_len1 ) ;
+static void x_swap_bytes ( void * buf_pt1 , uchar * ctl_pt1 , int cnt1 ) ;
 
 static int x_bmp_pic_conv1 ( void ) ;
 static int x_bmp_pic_conv4 ( void ) ;
@@ -127,7 +130,7 @@ static int x_bmp_pic_conv8 ( void ) ;
 static int x_bmp_pic_conv24 ( void ) ;
 
 static void x_write_hdr ( int cl_bit1 ) ;
-static void str_write ( void * str_pt1 ) ;
+static void str_write ( const char * str_pt1 ) ;
 static void x_conv_palette ( int cl_bit1 ) ;
 static void x_read_bmp_image8 ( int oy1 , int syl1 ) ;
 
@@ -135,74 +138,68 @@ static void x_mark_diff_point1 ( int oy1 , int syl1 ) ;
 static void x_compress1 ( int oy1 , int syl1 ) ;
 
 static void x_compress_chain1 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , char * img_buf_pt1 ,  char cl1 ) ;
+    uchar * edge_map_pt1 , uchar * img_buf_pt1 ,  uchar cl1 ) ;
 
 static void x_mark_diff_point4 ( int oy1 , int syl1 ) ;
 static void x_compress4 ( int oy1 , int syl1 ) ;
 
 static void x_compress_chain4 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , char * img_buf_pt1 , char cl1 ) ;
+    uchar * edge_map_pt1 , uchar * img_buf_pt1 , uchar cl1 ) ;
 
 static void x_mark_diff_point8 ( int oy1 , int syl1 ) ;
 static void x_compress8 ( int oy1 , int syl1 ) ;
 
 static void x_compress_chain8 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , char * img_buf_pt1 , char cl1 ) ;
+    uchar * edge_map_pt1 , uchar * img_buf_pt1 , uchar cl1 ) ;
 
 static void x_read_bmp_image24 ( int oy1 , int syl1 ) ;
 static void mk_cnvtbl ( void ) ;
-static void x_conv_line24 ( PIXEL * img_pt1 , char * bmp_pt1 , int sxl1 ) ;
+static void x_conv_line24 ( PIXEL * img_pt1 , uchar * bmp_pt1 , int sxl1 ) ;
 static void x_init_color_cash ( void ) ;
 static void x_mark_diff_point16 ( int oy1 , int syl1 ) ;
 static void x_compress15 ( int oy1 , int syl1 ) ;
 
 static void x_compress_chain15 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , PIXEL * img_buf_pt1 , PIXEL cl1 ) ;
+    uchar * edge_map_pt1 , PIXEL * img_buf_pt1 , PIXEL cl1 ) ;
 
-static void write_len ( int n ) ;
+static void write_len ( long n ) ;
 static void write_color15 ( PIXEL cl1 ) ;
 static int search_col ( PIXEL cl1 ) ;
 static void set_color ( int ix1 ) ;
-static void bit_write ( int wlen1 , uint wdata1 ) ;
+static void bit_write ( int wlen1 , ulong wdata1 ) ;
 static void x_flush_buff ( void ) ;
-// static uint swap_uint(uint bigend);
-// static ushort swap_ushort(ushort bigend);
-// static short swap_short(short bigend);
-// static int swap_int(int bigend);
 
 /* ---------------------------------------------------------------- */
 
-static char dos_mode = 0 ;		/* 1:パスの区切りを￥に変換する。 */
-static char info_mode = 0 ;		/* 1:情報表示モード */
-static char * out_dir1 = NULL ;	/* 出力先指定 */
-static char trans_mode = 0 ;		/* 1:拡張子 .BMP を付けない。 */
-static char verbose_mode = 0 ;		/* 1:お喋りモード */
+static uchar dos_mode = 0 ;   /* 1:パスの区切りを￥に変換する。 */
+static uchar info_mode = 0 ;    /* 1:情報表示モード */
+static uchar * out_dir1 = NULL ;  /* 出力先指定 */
+static uchar trans_mode = 0 ;   /* 1:拡張子 .BMP を付けない。 */
+static uchar verbose_mode = 0 ;   /* 1:お喋りモード */
 
-static char * bmp_fname_pt1 ;
+static uchar * bmp_fname_pt1 ;
 static int bmp_fh ;
-static FILE* bmp_f;
-static int bmp_file_date1 = 0 ;	/* BMPファイル日付 */
+static long bmp_file_date1 = 0 ; /* BMPファイル日付 */
 
 static BITMAP_FILE_HEADER bmp_fil_hdr ;
 static BITMAP_INFO_HEADER bmp_inf_hdr ;
 
 static int buf_xb1 , buf_yl1 ;
 static int edge_xb1 ;
-static uint edge_sz1 ;
+static ulong edge_sz1 ;
 
-static char * pic_fname_pt1 ;
+static uchar * pic_fname_pt1 ;
 static int pic_fh ;
-static FILE* pic_f;
 static int bit_len ;
 static int buff_len ;
-static uint pic_bit_data ;
-static uint * pic_put_pt ;
-static uint pic_buf [ 2048 ] ;
+static ulong pic_bit_data ;
+static ulong * pic_put_pt ;
+static ulong pic_buf [ 2048 ] ;
 
 static jmp_buf wenv1 ;
 
-static char * edge_map1 ;	/* ２色は big endian、その他は little endian */
-static char * img_buf8 ;
+static uchar * edge_map1 ;  /* ２色は big endian、その他は little endian */
+static uchar * img_buf8 ;
 static PIXEL * img_buf16 ;
 
 static PIXEL red_cnv_tbl   [ 256 ] ;
@@ -219,24 +216,24 @@ static PIXEL blue_cnv_tbl  [ 256 ] ;
 int main ( int argc , char * argv [ ] )
 {
   int retc , ix1 , fcnt1 ;
-  char wch1 ;
-  char * ch_pt1 ;
+  uchar wch1 ;
+  uchar * ch_pt1 ;
 
   puts ( "X68k BMP2PIC v0.03 Copyright 1994 Arimac" ) ;
   puts ( "BMP to PIC File Converter (2/16/256/16M Colors)" ) ;
   puts ( "cshwild (By Mad Player) included" ) ;
 
-  if ( x_arg_chk ( argc , argv ) != 0 ) goto lb600 ;
+  if ( x_arg_chk ( argc , (uchar **)argv ) != 0 ) goto lb600 ;
 
   fcnt1 = 0 ;
 
   for ( ix1 = 1 ; ix1 < argc ; ix1 ++ ) {
-    ch_pt1 = argv [ ix1 ] ;
+    ch_pt1 = (uchar *)argv [ ix1 ] ;
     wch1 = * ch_pt1 ;
     if ( wch1 == '-' || wch1 == '/' ) {
       if ( ch_pt1 [ 1 ] == 0 ) {
         if ( ++ ix1 >= argc ) goto lb600 ;
-        if ( x_file_proc ( argv [ ix1 ] ) < 0 ) goto lb800 ;
+        if ( x_file_proc ( (uchar *)argv [ ix1 ] ) < 0 ) goto lb800 ;
         fcnt1 ++ ;
       }
      } else {
@@ -249,7 +246,7 @@ int main ( int argc , char * argv [ ] )
   exit ( EXIT_SUCCESS ) ;
 
 lb600 :
-  x_print_help ( argc , argv ) ;
+  x_print_help ( argc , (uchar **)argv ) ;
 
 lb800 :
   exit ( EXIT_FAILURE ) ;
@@ -257,11 +254,11 @@ lb800 :
 
 /* ---------------------------------------------------------------- */
 
-static int x_arg_chk ( int argc , char * argv [ ] )
+static int x_arg_chk ( int argc , uchar * argv [ ] )
 {
   int ix1 , wk1 ;
-  char wch1 ;
-  char * ch_pt1 ;
+  uchar wch1 ;
+  uchar * ch_pt1 ;
 
   for ( ix1 = 1 ; ix1 < argc ; ix1 ++ ) {
     ch_pt1 = argv [ ix1 ] ;
@@ -290,27 +287,27 @@ lb800 :
 
 /* ---------------------------------------------------------------- */
 
-static void x_print_help ( int argc , char * argv [ ] )
+static void x_print_help ( int argc , uchar * argv [ ] )
 {
   int wlen1 ;
-  char * ch_pt1 , * ch_pt2 ;
+  uchar * ch_pt1 , * ch_pt2 ;
 
   if ( argc > 0 ) {
     ch_pt1 = argv [ 0 ] ;
-    if ( ( ch_pt2 = strrchr ( ch_pt1 , (char)'/' ) ) == NULL ) {
+    if ( ( ch_pt2 = jstrrchr ( ch_pt1 , '/' ) ) == NULL ) {
       ch_pt2 = ch_pt1 ;
      } else {
       ch_pt2 ++ ;
     }
-    if ( ( ch_pt1 = strrchr ( ch_pt2 , '.' ) ) != NULL ) {
+    if ( ( ch_pt1 = jstrrchr ( ch_pt2 , '.' ) ) != NULL ) {
       wlen1 = ch_pt1 - ch_pt2 ;
-      ch_pt1 = (char*) alloca ( wlen1 + 1 ) ;
+      ch_pt1 = (uchar *)alloca ( wlen1 + 1 ) ;
       memcpy ( ch_pt1 , ch_pt2 , wlen1 ) ;
       ch_pt1 [ wlen1 ] = 0 ;
       ch_pt2 = ch_pt1 ;
     }
    } else {
-    ch_pt2 = "BMP2PIC" ;
+    ch_pt2 = (uchar *) "BMP2PIC" ;
   }
 
   printf ( "使用法：%s［スイッチ］…［ファイル名[.BMP]］…\n" , ch_pt2 ) ;
@@ -324,27 +321,27 @@ static void x_print_help ( int argc , char * argv [ ] )
 
 /* ---------------------------------------------------------------- */
 
-static int x_file_proc ( char * path_pt1 )
+static int x_file_proc ( uchar * path_pt1 )
 {
-  char * fname_pt1 , * path_pt2 , * path_pt3 , * ch_pt1 ;
+  uchar * fname_pt1 , * path_pt2 , * path_pt3 , * ch_pt1 ;
 
   fname_pt1 = path_pt1 ;
-  if ( ( ch_pt1 = strrchr ( fname_pt1 , '/'  ) ) != NULL ) fname_pt1 = ch_pt1 + 1 ;
-  if ( ( ch_pt1 = strrchr ( fname_pt1 , '\\' ) ) != NULL ) fname_pt1 = ch_pt1 + 1 ;
-  if ( ( ch_pt1 = strrchr ( fname_pt1 , ':'  ) ) != NULL ) fname_pt1 = ch_pt1 + 1 ;
+  if ( ( ch_pt1 = jstrrchr ( fname_pt1 , '/'  ) ) != NULL ) fname_pt1 = ch_pt1 + 1 ;
+  if ( ( ch_pt1 = jstrrchr ( fname_pt1 , '\\' ) ) != NULL ) fname_pt1 = ch_pt1 + 1 ;
+  if ( ( ch_pt1 = jstrrchr ( fname_pt1 , ':'  ) ) != NULL ) fname_pt1 = ch_pt1 + 1 ;
 
-  if ( trans_mode == 0 && strchr ( fname_pt1 , '.' ) == NULL ) {
-    path_pt2 = (char*) alloca (  x_strlen ( path_pt1 ) + 5 ) ;
-    sprintf (  path_pt2 , "%s.BMP" , path_pt1 ) ;
+  if ( trans_mode == 0 && jstrchr ( fname_pt1 , '.' ) == NULL ) {
+    path_pt2 = (uchar *)alloca ( x_strlen ( path_pt1 ) + 5 ) ;
+    sprintf ( (char *)path_pt2 , "%s.BMP" , path_pt1 ) ;
    } else {
     path_pt2 = path_pt1 ;
   }
 
   if ( dos_mode != 0 ) {
-    path_pt3 = (char*) alloca ( x_strlen ( path_pt2 ) + 1 ) ;
+    path_pt3 = (uchar *)alloca ( x_strlen ( path_pt2 ) + 1 ) ;
     x_strcpy ( path_pt3 , path_pt2 ) ;
     ch_pt1 = path_pt3 ;
-    while ( ( ch_pt1 = strchr ( ch_pt1 , '/' ) ) != NULL ) * ch_pt1 ++ = '\\' ;
+    while ( ( ch_pt1 = jstrchr ( ch_pt1 , '/' ) ) != NULL ) * ch_pt1 ++ = '\\' ;
     path_pt2 = path_pt3 ;
   }
 
@@ -353,12 +350,12 @@ static int x_file_proc ( char * path_pt1 )
 
 /* ---------------------------------------------------------------- */
 
-static int x_bmp_pic_conv ( char * path_pt1 , int dir_len1 )
+static int x_bmp_pic_conv ( uchar * path_pt1 , int dir_len1 )
 {
   int bmp_openf , pic_openf ;
   int wlen1 , wlen2 , retc ;
-  char wch1 ;
-  char * ch_pt1 , * path_pt2 ;
+  uchar wch1 ;
+  uchar * ch_pt1 , * path_pt2 ;
   int ( * proc_pt1 ) ( ) ;
 
   bmp_openf = pic_openf = 0 ;
@@ -367,7 +364,7 @@ static int x_bmp_pic_conv ( char * path_pt1 , int dir_len1 )
   if ( out_dir1 != NULL ) {
     wlen1 = x_strlen ( out_dir1 ) ;
     wlen2 = x_strlen ( path_pt1 + dir_len1 ) ;
-    path_pt2 = (char *) alloca ( wlen1 + wlen2 + 2 ) ;
+    path_pt2 = (uchar *)alloca ( wlen1 + wlen2 + 2 ) ;
     if ( wlen1 > 0 ) {
       memcpy ( path_pt2 , out_dir1 , wlen1 ) ;
       wch1 = out_dir1 [ wlen1 - 1 ] ;
@@ -383,29 +380,33 @@ static int x_bmp_pic_conv ( char * path_pt1 , int dir_len1 )
     memcpy ( path_pt2 + wlen1 , path_pt1 + dir_len1 , wlen2 + 1 ) ;
   }
 
-  if ( ( ch_pt1 = strrchr ( path_pt2 + dir_len1 , '.' ) ) == NULL ) {
+  if ( ( ch_pt1 = jstrrchr ( path_pt2 + dir_len1 , '.' ) ) == NULL ) {
     wlen1 = x_strlen ( path_pt2 ) ;
    } else {
     wlen1 = ch_pt1 - path_pt2 ;
   }
 
-  pic_fname_pt1 = (char*) alloca ( wlen1 + 5 ) ;
+  pic_fname_pt1 = (uchar *)alloca ( wlen1 + 5 ) ;
   memcpy ( pic_fname_pt1 , path_pt2 , wlen1 ) ;
   x_strcpy ( pic_fname_pt1 + wlen1 , ".PIC" ) ;
 
-  if ( ( bmp_fh = fileno(fopen (  path_pt1 , "rb" ))) < 0 ) {
+  if ( ( bmp_fh = open ( (char *)path_pt1 , O_RDONLY | O_BINARY ,
+      S_IREAD | S_IWRITE ) ) < 0 ) {
 
     printf ( "%s はオープン出来ません。\n" , path_pt1 ) ;
     goto lb720 ;
   }
   bmp_openf = 1 ;
-  bmp_f = fopen(path_pt1, "rb");
- // bmp_file_date1 = getft ( bmp_fh ) ;
 
-  if ( fread (  & bmp_fil_hdr , 1,sizeof ( bmp_fil_hdr ), bmp_f ) !=
+  bmp_file_date1 = getft ( bmp_fh ) ;
+
+  if ( read ( bmp_fh , & bmp_fil_hdr , sizeof ( bmp_fil_hdr ) ) !=
                                        sizeof ( bmp_fil_hdr ) ) goto lb700 ;
 
-  // x_swap_bytes ( & bmp_fil_hdr , bmp_fil_hdr_swap , numberof ( bmp_fil_hdr_swap ) / 2 ) ;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  x_swap_bytes ( & bmp_fil_hdr , bmp_fil_hdr_swap ,
+                      numberof ( bmp_fil_hdr_swap ) / 2 ) ;
+#endif
 
   if ( info_mode != 0 ) {
     printf ( "FileName ･････････ %s\n"         , path_pt1 ) ;
@@ -414,12 +415,15 @@ static int x_bmp_pic_conv ( char * path_pt1 , int dir_len1 )
     printf ( "bfOffBits ････････ %d\n"         , bmp_fil_hdr . bfOffBits ) ;
   }
 
-  if ( bmp_fil_hdr . bfType != 19778 ) goto lb700 ;
+  if ( bmp_fil_hdr . bfType != 0x4D42 ) goto lb700 ;  /* 'BM' in little-endian */
 
-  if ( (fread ( & bmp_inf_hdr , 1, sizeof ( bmp_inf_hdr ), bmp_f) ) !=
+  if ( read ( bmp_fh , & bmp_inf_hdr , sizeof ( bmp_inf_hdr ) ) !=
                                        sizeof ( bmp_inf_hdr ) ) goto lb700 ;
 
-  // x_swap_bytes ( & bmp_inf_hdr , bmp_inf_hdr_swap , numberof ( bmp_inf_hdr_swap ) / 2 ) ;
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  x_swap_bytes ( & bmp_inf_hdr , bmp_inf_hdr_swap ,
+                      numberof ( bmp_inf_hdr_swap ) / 2 ) ;
+#endif
 
   if ( info_mode == 0 ) {
     printf ( "convert %s (%d bit, %d x %d) to %s\n" ,
@@ -446,24 +450,23 @@ static int x_bmp_pic_conv ( char * path_pt1 , int dir_len1 )
   }
 
   switch ( bmp_inf_hdr . biBitCount ) {
-  case  1 : proc_pt1 = x_bmp_pic_conv1 ;	break ;		/* 2色 */
-  case  4 : proc_pt1 = x_bmp_pic_conv4 ;	break ;		/* 16色 */
-  case  8 : proc_pt1 = x_bmp_pic_conv8 ;	break ;		/* 256色 */
-  case 24 : proc_pt1 = x_bmp_pic_conv24 ;	break ;		/* 1678色 */
+  case  1 : proc_pt1 = x_bmp_pic_conv1 ;	break ;		/* 2�F */
+  case  4 : proc_pt1 = x_bmp_pic_conv4 ;	break ;		/* 16�F */
+  case  8 : proc_pt1 = x_bmp_pic_conv8 ;	break ;		/* 256�F */
+  case 24 : proc_pt1 = x_bmp_pic_conv24 ;	break ;		/* 1678�F */
   default :
     printf ( "%s は2色、16色、256色又は1678万色データではありません。\n" ,
              path_pt1 ) ;
     goto lb720 ;
   }
 
-  if ( ( pic_fh = fileno(fopen ( pic_fname_pt1 , "wb") )) < 0 ) {
+  if ( ( pic_fh = open ( (char *)pic_fname_pt1 , O_CREAT | O_RDWR | O_TRUNC | O_BINARY ,
+      S_IREAD | S_IWRITE ) ) < 0 ) {
 
     printf ( "%s が作成出来ません。\n" , pic_fname_pt1 ) ;
     goto lb800 ;
   }
   pic_openf = 1 ;
-  pic_f = fopen(pic_fname_pt1, "wb");
-
 
   pic_put_pt = pic_buf ;
   buff_len = numberof ( pic_buf ) ;
@@ -472,16 +475,16 @@ static int x_bmp_pic_conv ( char * path_pt1 , int dir_len1 )
   if ( ( * proc_pt1 ) ( ) != 0 ) goto lb800 ;
 
   x_flush_buff ( ) ;
- // chgft ( pic_fh , bmp_file_date1 ) ; // used for transferring timestamp from bmp to pic
+  chgft ( pic_fh , bmp_file_date1 ) ;
 
   pic_openf = 0 ;
-  if ( fclose ( pic_f ) < 0 ) {
+  if ( close ( pic_fh ) < 0 ) {
     printf ( "%s が作成出来ません。\n" , pic_fname_pt1 ) ;
     goto lb800 ;
   }
 
   bmp_openf = 0 ;
-  fclose ( bmp_f) ;
+  close ( bmp_fh ) ;
 
 lb500 :
   retc = 0 ;
@@ -498,21 +501,21 @@ lb800 :
   retc = - 1 ;
 
 lb900 :
-  if ( pic_openf != 0 ) fclose ( pic_f ) ;
-  if ( bmp_openf != 0 ) fclose ( bmp_f ) ;
+  if ( pic_openf != 0 ) close ( pic_fh ) ;
+  if ( bmp_openf != 0 ) close ( bmp_fh ) ;
   return ( retc ) ;
 }
 
 /* ---------------------------------------------------------------- */
 
-static void x_swap_bytes ( void * buf_pt1 , char * ctl_pt1 , int cnt1 )
+static void x_swap_bytes ( void * buf_pt1 , uchar * ctl_pt1 , int cnt1 )
 {
   int cnt2 ;
-  char wch1 ;
-  char * ch_pt1 , * ch_pt2 ;
+  uchar wch1 ;
+  uchar * ch_pt1 , * ch_pt2 ;
 
   while ( cnt1 -- ) {
-    ch_pt1 = ( char * ) buf_pt1 + * ctl_pt1 ++ ;
+    ch_pt1 = ( uchar * ) buf_pt1 + * ctl_pt1 ++ ;
     cnt2 = * ctl_pt1 ++ ;
     ch_pt2 = ch_pt1 + cnt2 ;
     cnt2 >>= 1 ;
@@ -526,11 +529,33 @@ static void x_swap_bytes ( void * buf_pt1 , char * ctl_pt1 , int cnt1 )
 
 /* ---------------------------------------------------------------- */
 
+/* Convert ulong array to big-endian for PIC file output */
+static void x_swap_ulong_array_to_big_endian ( ulong * buf_pt1 , int cnt1 )
+{
+#if __BYTE_ORDER__ != __ORDER_BIG_ENDIAN__
+  uchar * ch_pt1 ;
+  uchar wch1 ;
+
+  while ( cnt1 -- ) {
+    ch_pt1 = ( uchar * ) buf_pt1 ;
+    wch1 = ch_pt1 [ 0 ] ;
+    ch_pt1 [ 0 ] = ch_pt1 [ 3 ] ;
+    ch_pt1 [ 3 ] = wch1 ;
+    wch1 = ch_pt1 [ 1 ] ;
+    ch_pt1 [ 1 ] = ch_pt1 [ 2 ] ;
+    ch_pt1 [ 2 ] = wch1 ;
+    buf_pt1 ++ ;
+  }
+#endif
+}
+
+/* ---------------------------------------------------------------- */
+
 static int x_bmp_pic_conv1 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  uint img_xl1 , img_yl1 ;
-  uint buf_sz1 ;
+  ulong img_xl1 , img_yl1 ;
+  ulong buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf8 = NULL ;
@@ -556,12 +581,12 @@ static int x_bmp_pic_conv1 ( void )
   edge_xb1 = ( img_xl1 + 7 ) >> 3 ;
   edge_sz1 = edge_xb1 * buf_yl1 ;
 
-  if ( ( edge_map1 = malloc ( edge_sz1 ) ) == NULL ) {
+  if ( ( edge_map1 = (uchar *)malloc ( edge_sz1 ) ) == NULL ) {
     puts ( "edge_map can't alloc" ) ;
     goto lb800 ;
   }
 
-  if ( ( img_buf8 = malloc ( buf_sz1 ) ) == NULL ) {
+  if ( ( img_buf8 = (uchar *)malloc ( buf_sz1 ) ) == NULL ) {
     puts ( "img_buf can't alloc" ) ;
     goto lb800 ;
   }
@@ -601,8 +626,8 @@ lb800 :
 static int x_bmp_pic_conv4 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  uint img_xl1 , img_yl1 ;
-  uint buf_sz1 ;
+  ulong img_xl1 , img_yl1 ;
+  ulong buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf8 = NULL ;
@@ -628,12 +653,12 @@ static int x_bmp_pic_conv4 ( void )
   edge_xb1 = ( img_xl1 + 7 ) >> 3 ;
   edge_sz1 = edge_xb1 * buf_yl1 ;
 
-  if ( ( edge_map1 = malloc ( edge_sz1 ) ) == NULL ) {
+  if ( ( edge_map1 = (uchar *)malloc ( edge_sz1 ) ) == NULL ) {
     puts ( "edge_map can't alloc" ) ;
     goto lb800 ;
   }
 
-  if ( ( img_buf8 = malloc ( buf_sz1 ) ) == NULL ) {
+  if ( ( img_buf8 = (uchar *)malloc ( buf_sz1 ) ) == NULL ) {
     puts ( "img_buf can't alloc" ) ;
     goto lb800 ;
   }
@@ -673,14 +698,15 @@ lb800 :
 static int x_bmp_pic_conv8 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  uint img_xl1 , img_yl1 ;
-  uint buf_sz1 ;
+  ulong img_xl1 , img_yl1 ;
+  ulong buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf8 = NULL ;
   big_img_sw1 = 0 ;
 
   if ( setjmp ( wenv1 ) != 0 ) goto lb800 ;
+
   x_write_hdr ( 8 ) ;
   x_conv_palette ( 8 ) ;
 
@@ -699,12 +725,12 @@ static int x_bmp_pic_conv8 ( void )
   edge_xb1 = ( img_xl1 + 7 ) >> 3 ;
   edge_sz1 = edge_xb1 * buf_yl1 ;
 
-  if ( ( edge_map1 = malloc ( edge_sz1 ) ) == NULL ) {
+  if ( ( edge_map1 = (uchar *)malloc ( edge_sz1 ) ) == NULL ) {
     puts ( "edge_map can't alloc" ) ;
     goto lb800 ;
   }
 
-  if ( ( img_buf8 = malloc ( buf_sz1 ) ) == NULL ) {
+  if ( ( img_buf8 = (uchar *)malloc ( buf_sz1 ) ) == NULL ) {
     puts ( "img_buf can't alloc" ) ;
     goto lb800 ;
   }
@@ -744,8 +770,8 @@ lb800 :
 static int x_bmp_pic_conv24 ( void )
 {
   int big_img_sw1 , oy1 , syl1 ;
-  uint img_xl1 , img_yl1 ;
-  uint buf_sz1 ;
+  ulong img_xl1 , img_yl1 ;
+  ulong buf_sz1 ;
 
   edge_map1 = NULL ;
   img_buf16 = NULL ;
@@ -770,12 +796,12 @@ static int x_bmp_pic_conv24 ( void )
   edge_xb1 = ( img_xl1 + 7 ) >> 3 ;
   edge_sz1 = edge_xb1 * buf_yl1 ;
 
-  if ( ( edge_map1 = malloc ( edge_sz1 ) ) == NULL ) {
+  if ( ( edge_map1 = (uchar *)malloc ( edge_sz1 ) ) == NULL ) {
     puts ( "edge_map can't alloc" ) ;
     goto lb800 ;
   }
 
-  if ( ( img_buf16 = malloc ( buf_sz1 ) ) == NULL ) {
+  if ( ( img_buf16 = (PIXEL *)malloc ( buf_sz1 ) ) == NULL ) {
     puts ( "img_buf can't alloc" ) ;
     goto lb800 ;
   }
@@ -828,12 +854,12 @@ static void x_write_hdr ( int cl_bit1 )
 
 /* ---------------------------------------------------------------- */
 
-static void str_write ( void * str_pt1 )
+static void str_write ( const char * str_pt1 )
 {
-  char wch1 ;
-  char * str_pt2 ;
+  uchar wch1 ;
+  const uchar * str_pt2 ;
 
-  str_pt2 = str_pt1 ;
+  str_pt2 = (const uchar *)str_pt1 ;
   while ( ( wch1 = * str_pt2 ++ ) != 0 ) bit_write ( 8 , wch1 ) ;
 }
 
@@ -845,7 +871,7 @@ static void x_conv_palette ( int cl_bit1 )
   RGB_QUAD * rgb_pt1 ;
 
   if ( bmp_inf_hdr . biSize != sizeof ( bmp_inf_hdr ) ) {
-    if ( fseek ( bmp_f , sizeof ( bmp_fil_hdr ) + bmp_inf_hdr . biSize ,
+    if ( lseek ( bmp_fh , sizeof ( bmp_fil_hdr ) + bmp_inf_hdr . biSize ,
                           SEEK_SET ) < 0 ) {
 
       printf ( "%s can't seek (color table)\n" , bmp_fname_pt1 ) ;
@@ -859,9 +885,9 @@ static void x_conv_palette ( int cl_bit1 )
   }
 
   rgb_size1 = sizeof ( RGB_QUAD ) * cl_cnt1 ;
-  rgb_pt1 = (RGB_QUAD*) alloca ( rgb_size1 ) ;
+  rgb_pt1 = (RGB_QUAD *)alloca ( rgb_size1 ) ;
 
-  if ( fread ( rgb_pt1 , 1,rgb_size1, bmp_f)  != rgb_size1 ) {
+  if ( read ( bmp_fh , rgb_pt1 , rgb_size1 ) != rgb_size1 ) {
     printf ( "%s can't read (color table)\n" , bmp_fname_pt1 ) ;
     longjmp ( wenv1 , 1 ) ;
   }
@@ -869,9 +895,9 @@ static void x_conv_palette ( int cl_bit1 )
   cl_cnt2 = ( 1 << cl_bit1 ) - cl_cnt1 ;
 
   while ( cl_cnt1 -- ) {
-    bit_write ( 16 , ( RGB ( rgb_pt1 -> rgbRed   >> 3 ,
+    bit_write ( 16 , RGB ( rgb_pt1 -> rgbRed   >> 3 ,
                            rgb_pt1 -> rgbGreen >> 3 ,
-                           rgb_pt1 -> rgbBlue  >> 3 ) - 1 )) ;
+                           rgb_pt1 -> rgbBlue  >> 3 ) - 1 ) ;
     rgb_pt1 ++ ;
   }
 
@@ -882,9 +908,9 @@ static void x_conv_palette ( int cl_bit1 )
 
 static void x_read_bmp_image8 ( int oy1 , int syl1 )
 {
-  uint wlen1 ;
+  ulong wlen1 ;
 
-  if ( fseek ( bmp_f , bmp_fil_hdr . bfOffBits +
+  if ( lseek ( bmp_fh , bmp_fil_hdr . bfOffBits +
                buf_xb1 * ( bmp_inf_hdr . biHeight - oy1 - syl1 ) ,
                SEEK_SET ) < 0 ) {
 
@@ -893,7 +919,7 @@ static void x_read_bmp_image8 ( int oy1 , int syl1 )
   }
 
   wlen1 = buf_xb1 * syl1 ;
-  if ( fread ( img_buf8 , 1, wlen1, bmp_f ) != wlen1 ) {
+  if ( read ( bmp_fh , img_buf8 , wlen1 ) != wlen1 ) {
     printf ( "%s can't read (image data)\n" , bmp_fname_pt1 ) ;
     goto lb800 ;
   }
@@ -908,10 +934,10 @@ lb800 :
 static void x_mark_diff_point1 ( int oy1 , int syl1 )
 {
   int sy1 , bx1 , xcnt1 ;
-  uint img_xl1 ;
-  char cl1 , cl2 , wch1 , wedge1 , wverbose1 ;
-  char * edge_map_pt1 ;
-  char * img_buf_pt1 ;
+  ulong img_xl1 ;
+  uchar cl1 , cl2 , wch1 , wedge1 , wverbose1 ;
+  uchar * edge_map_pt1 ;
+  uchar * img_buf_pt1 ;
 
   cl1 = 0 ;
   sy1 = syl1 ;
@@ -951,11 +977,11 @@ static void x_mark_diff_point1 ( int oy1 , int syl1 )
 static void x_compress1 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  uint img_xl1 ;
-  char cl1 , wedge1 , wmask1 , wverbose1 ;
-  int wlen1 ;
-  char * edge_map_pt1 ;
-  char * img_buf_pt1 ;
+  ulong img_xl1 ;
+  uchar cl1 , wedge1 , wmask1 , wverbose1 ;
+  long wlen1 ;
+  uchar * edge_map_pt1 ;
+  uchar * img_buf_pt1 ;
 
   wlen1 = 0 ;
   sy1 = syl1 ;
@@ -1012,11 +1038,11 @@ static void x_compress1 ( int oy1 , int syl1 )
 /* ---------------------------------------------------------------- */
 
 static void x_compress_chain1 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , char * img_buf_pt1 , char cl1 )
+    uchar * edge_map_pt1 , uchar * img_buf_pt1 , uchar cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  uint img_xl1 ;
-  char wmask1 ;
+  ulong img_xl1 ;
+  uchar wmask1 ;
 
   fsw1 = 0 ;
   img_xl1 = bmp_inf_hdr . biWidth ;
@@ -1074,10 +1100,10 @@ static void x_compress_chain1 ( int sx1 , int sy1 ,
 static void x_mark_diff_point4 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , xcnt1 , bx1 ;
-  uint img_xl1 ;
-  char cl1 , cl2 , wch1 , wverbose1 ;
-  char * edge_map_pt1 ;
-  char * img_buf_pt1 ;
+  ulong img_xl1 ;
+  uchar cl1 , cl2 , wch1 , wverbose1 ;
+  uchar * edge_map_pt1 ;
+  uchar * img_buf_pt1 ;
 
   memset ( edge_map1 , 0 , edge_sz1 ) ;
 
@@ -1128,11 +1154,11 @@ static void x_mark_diff_point4 ( int oy1 , int syl1 )
 static void x_compress4 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  uint img_xl1 ;
-  char cl1 , wedge1 , wmask1 , wverbose1 ;
-  int wlen1 ;
-  char * edge_map_pt1 ;
-  char * img_buf_pt1 ;
+  ulong img_xl1 ;
+  uchar cl1 , wedge1 , wmask1 , wverbose1 ;
+  long wlen1 ;
+  uchar * edge_map_pt1 ;
+  uchar * img_buf_pt1 ;
 
   wlen1 = 0 ;
   sy1 = syl1 ;
@@ -1201,11 +1227,11 @@ static void x_compress4 ( int oy1 , int syl1 )
 /* ---------------------------------------------------------------- */
 
 static void x_compress_chain4 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , char * img_buf_pt1 , char cl1 )
+    uchar * edge_map_pt1 , uchar * img_buf_pt1 , uchar cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  uint img_xl1 ;
-  char cl_mask1 , cl2 ;
+  ulong img_xl1 ;
+  uchar cl_mask1 , cl2 ;
 
   if ( ( sx1 & 1 ) == 0 ) {
     cl_mask1 = 0xF0 ;
@@ -1269,10 +1295,10 @@ static void x_compress_chain4 ( int sx1 , int sy1 ,
 static void x_mark_diff_point8 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 ;
-  uint img_xl1 ;
-  char cl1 , cl2 , wverbose1 ;
-  char * edge_map_pt1 ;
-  char * img_buf_pt1 ;
+  ulong img_xl1 ;
+  uchar cl1 , cl2 , wverbose1 ;
+  uchar * edge_map_pt1 ;
+  uchar * img_buf_pt1 ;
 
   memset ( edge_map1 , 0 , edge_sz1 ) ;
 
@@ -1302,11 +1328,11 @@ static void x_mark_diff_point8 ( int oy1 , int syl1 )
 static void x_compress8 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  uint img_xl1 ;
-  char cl1 , wedge1 , wmask1 , wverbose1 ;
-  int wlen1 ;
-  char * edge_map_pt1 ;
-  char * img_buf_pt1 ;
+  ulong img_xl1 ;
+  uchar cl1 , wedge1 , wmask1 , wverbose1 ;
+  long wlen1 ;
+  uchar * edge_map_pt1 ;
+  uchar * img_buf_pt1 ;
 
   wlen1 = 0 ;
   sy1 = syl1 ;
@@ -1363,10 +1389,10 @@ static void x_compress8 ( int oy1 , int syl1 )
 /* ---------------------------------------------------------------- */
 
 static void x_compress_chain8 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , char * img_buf_pt1 , char cl1 )
+    uchar * edge_map_pt1 , uchar * img_buf_pt1 , uchar cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  uint img_xl1 ;
+  ulong img_xl1 ;
 
   fsw1 = 0 ;
   img_xl1 = bmp_inf_hdr . biWidth ;
@@ -1422,21 +1448,21 @@ static void x_compress_chain8 ( int sx1 , int sy1 ,
 
 static void x_read_bmp_image24 ( int oy1 , int syl1 )
 {
-  uint img_xl1 , bmp_xb1 ;
-  char * bmp_buf1 ;
+  ulong img_xl1 , bmp_xb1 ;
+  uchar * bmp_buf1 ;
   PIXEL * img_pt1 ;
 
   img_xl1 = bmp_inf_hdr . biWidth ;
   bmp_xb1 = ( img_xl1 * 3 + 3 ) & ~ 3 ;		/* BMP line width */
-  bmp_buf1 = (char*) alloca ( bmp_xb1 ) ;
+  bmp_buf1 = (uchar *)alloca ( bmp_xb1 ) ;
 
-  if ( fseek ( bmp_f , bmp_fil_hdr . bfOffBits +
+  if ( lseek ( bmp_fh , bmp_fil_hdr . bfOffBits +
                bmp_xb1 * ( bmp_inf_hdr . biHeight - oy1 - syl1 ) ,
                SEEK_SET ) < 0 ) goto lb600 ;
 
   img_pt1 = img_buf16 ;
   while ( syl1 -- ) {
-    if ( fread ( bmp_buf1 , 1, bmp_xb1, bmp_f ) != bmp_xb1 ) goto lb610 ;
+    if ( read ( bmp_fh , bmp_buf1 , bmp_xb1 ) != bmp_xb1 ) goto lb610 ;
     x_conv_line24 ( img_pt1 , bmp_buf1 , img_xl1 ) ;
     img_pt1 += img_xl1 ;
   }
@@ -1469,7 +1495,7 @@ static void mk_cnvtbl ( void )
 
 /* ---------------------------------------------------------------- */
 
-static void x_conv_line24 ( PIXEL * img_pt1 , char * bmp_pt1 , int sxl1 )
+static void x_conv_line24 ( PIXEL * img_pt1 , uchar * bmp_pt1 , int sxl1 )
 {
   int wred1 , wgreen1 , wblue1 ;
 
@@ -1507,10 +1533,10 @@ static void x_init_color_cash ( void )
 static void x_mark_diff_point16 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 ;
-  uint img_xl1 ;
+  ulong img_xl1 ;
   PIXEL cl1 , cl2 ;
-  char wverbose1 ;
-  char * edge_map_pt1 ;
+  uchar wverbose1 ;
+  uchar * edge_map_pt1 ;
   PIXEL * img_buf_pt1 ;
 
   memset ( edge_map1 , 0 , edge_sz1 ) ;
@@ -1541,11 +1567,11 @@ static void x_mark_diff_point16 ( int oy1 , int syl1 )
 static void x_compress15 ( int oy1 , int syl1 )
 {
   int sx1 , sy1 , bx1 , xcnt1 ;
-  uint img_xl1 ;
+  ulong img_xl1 ;
   PIXEL cl1 ;
-  char wedge1 , wmask1 , wverbose1 ;
-  int wlen1 ;
-  char * edge_map_pt1 ;
+  uchar wedge1 , wmask1 , wverbose1 ;
+  long wlen1 ;
+  uchar * edge_map_pt1 ;
   PIXEL * img_buf_pt1 ;
 
   wlen1 = 0 ;
@@ -1603,10 +1629,10 @@ static void x_compress15 ( int oy1 , int syl1 )
 /* ---------------------------------------------------------------- */
 
 static void x_compress_chain15 ( int sx1 , int sy1 ,
-    char * edge_map_pt1 , PIXEL * img_buf_pt1 , PIXEL cl1 )
+    uchar * edge_map_pt1 , PIXEL * img_buf_pt1 , PIXEL cl1 )
 {
   int fsw1 , wlen1 , wdata1 ;
-  uint img_xl1 ;
+  ulong img_xl1 ;
 
   fsw1 = 0 ;
   img_xl1 = bmp_inf_hdr . biWidth ;
@@ -1660,10 +1686,10 @@ static void x_compress_chain15 ( int sx1 , int sy1 ,
 
 /* ---------------------------------------------------------------- */
 
-static void write_len ( int n )
+static void write_len ( long n )
 {
   int wlen1 ;
-  int lwk1 ;
+  long lwk1 ;
 
   wlen1 = 1 ;
   lwk1 = 4 ;
@@ -1673,9 +1699,6 @@ static void write_len ( int n )
     wlen1 ++ ;
     lwk1 <<= 1 ;
   }
-
-  // bit_write ( wlen1 , swap_int(( ( 1 << wlen1 ) - 1 ) & ~ 1 )) ;
-  // bit_write ( wlen1 , swap_int( n - ( lwk1 >> 1 ) )) ;
 
   bit_write ( wlen1 , ( ( 1 << wlen1 ) - 1 ) & ~ 1 ) ;
   bit_write ( wlen1 , n - ( lwk1 >> 1 ) ) ;
@@ -1736,20 +1759,17 @@ static void set_color ( int ix1 )
 }
 
 /* ---------------------------------------------------------------- */
-//THIS FUNCTION HAS BEEN FIXED
-static void bit_write ( int wlen1 , uint wdata1 )
+
+static void bit_write ( int wlen1 , ulong wdata1 )
 {
 /*  wdata1 &= ( 1 << wlen1 ) - 1 ;  */
 
   if ( wlen1 >= bit_len ) {
-
-    * pic_put_pt ++ = swap_uint(( pic_bit_data << bit_len ) | ( wdata1 >> ( wlen1 - bit_len ) )) ;
-    // unsigned int off =wlen1-bit_len;
-    // * pic_put_pt ++ = ( pic_bit_data ) | ( wdata1 << ( 32-bit_len ) );
-    // pic_bit_data=0;
+    * pic_put_pt ++ = ( pic_bit_data << bit_len ) | ( wdata1 >> ( wlen1 - bit_len ) ) ;
 
     if ( -- buff_len <= 0 ) {
-      if ( fwrite ( pic_buf , 1,  sizeof ( pic_buf ), pic_f ) != sizeof ( pic_buf ) ) {
+      x_swap_ulong_array_to_big_endian ( pic_buf , numberof ( pic_buf ) ) ;
+      if ( write ( pic_fh , pic_buf , sizeof ( pic_buf ) ) != sizeof ( pic_buf ) ) {
         printf ( "%s can't write\n" , pic_fname_pt1 ) ;
         longjmp ( wenv1 , 1 ) ;
       }
@@ -1763,12 +1783,10 @@ static void bit_write ( int wlen1 , uint wdata1 )
     }
 
     wdata1 &= ( 1 << wlen1 ) - 1 ;
-    // wdata1 = wdata1>>off ;
     bit_len = 32 ;
   }
 
   pic_bit_data = ( pic_bit_data << wlen1 ) | wdata1 ;
-  // pic_bit_data = ( pic_bit_data ) | (wdata1 <<(32-bit_len));
   bit_len -= wlen1 ;
 }
 
@@ -1779,20 +1797,20 @@ static void x_flush_buff ( void )
   int wlen1 ;
 
   if ( bit_len < 32 ) {
-    * pic_put_pt = swap_uint( pic_bit_data << bit_len) ;
+    * pic_put_pt = pic_bit_data << bit_len ;
   }
 
   wlen1 = ( numberof ( pic_buf ) - buff_len ) * sizeof ( * pic_buf ) +
           ( ( ( 32 + 7 ) - bit_len ) >> 3 ) ;
 
   if ( wlen1 > 0 ) {
-    if ( fwrite ( pic_buf , 1, wlen1 , pic_f ) != wlen1 ) {
+    /* Swap complete ulongs (round up to cover any partial ulong bytes) */
+    x_swap_ulong_array_to_big_endian ( pic_buf , ( wlen1 + 3 ) / 4 ) ;
+    if ( write ( pic_fh , pic_buf , wlen1 ) != wlen1 ) {
       printf ( "%s can't write\n" , pic_fname_pt1 ) ;
       longjmp ( wenv1 , 1 ) ;
     }
   }
 }
-
-
 
 /* ---------------------------------------------------------------- */

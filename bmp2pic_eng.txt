@@ -1,0 +1,104 @@
+<< BMP2PIC (v0.03) >> 1994/09/21
+
+1. Function
+
+This program converts MS-Windows (c)Microsoft) BMP files into PIC files, a format invented by Akira Yanagisawa. However, it only supports uncompressed files with 2 colors, 16 colors, 256 colors, and 16.78 million colors.
+
+2. Motivation
+
+BMP files are large, so I wanted to convert them to PIC files, which offer efficient compression and fast decompression.
+
+3. Usage
+
+[Command Format]
+
+BMP2PIC [switch]... [filename[.BMP]]...
+
+○ Switches (you can use / instead of - and uppercase instead of lowercase)
+
+-d cshwild converts the path separator to \ after decompression.
+
+- Added for Human68k (v2.0), but I'm not sure if it works.
+
+-i Display File Information
+
+- Displays the header information of BMP files.
+
+-o Output Destination
+
+- Specifies the output directory.
+
+(Example: -oFOO -oA:)
+
+-t Does not add the .BMP extension even if the file name does not have a '.'.
+
+-v Chatty mode. Displays the line number being converted.
+
+- Always treats the next parameter as a file name.
+
+○ File Name
+
+- Multiple parameters can be specified. Since cshwild.a is linked, wildcards can be used.
+
+- If the file name does not have a '.', a '.BMP' extension will be added. (This can be disabled with -t.)
+
+- The conversion results will be output with the PIC extension for the file name specified here.
+
+4. Notes
+
+- We assume no responsibility for any damage to data or disk contents caused by the use of this program.
+
+If the output file already exists, it will be overwritten without prompting you. (I guess I could just ask about it though ^^;)
+
+5. References and Programs
+
+- Explanation of the BMP format in the October 1992 issue of I/O ... Kogakusha Co., Ltd.
+- XC/C Library Manual Vol. 1 & 2 ... Sharp Corporation
+- Akira Yanagisawa's pics (v0.00) source files
+- Naonobu Fujiwara's HAPIC (v1.29D) documentation
+- "PIC Extended Header Specification" by Yukimi and MERON
+
+6. Tools Used
+
+The following software was used to create this software.
+We would like to thank the authors and porters (titles omitted).
+
+- gcc (X6_SX01) ... Free Software Foundation, Inc. & Mariko
+- HAS (v3.06) ... Y. Nakamura
+- HLK (v2.29) ... SALT
+- cshwild.a ... Mad Player
+- windex (v1.14) ... JEL Corp.
+
+lha (v2.06.00) ... Hideyasu Yoshizaki & Norio Okada
+
+ish (v1.111) ... M. Ishizuka & K. Miyazaki &
+O. Imaizumi & Obj.X & Y. Mamoto
+
+Other (TwentyOne, keymap, 040SYSpatch, lndrv, patexec, HIOCS, ...)
+
+7. Other
+
+- Two-color data in BMP files is converted to 16-color data in PIC files. 16.78 million-color data is converted to 30,000-color data. (Simple bit-dropping.)
+
+- Large BMP Converting files requires a large amount of memory. However, if the image size exceeds 1024x512 pixels, the image will be split and stored, so memory requirements will not increase beyond that.
+
+- The program was written with the 68020 or later model in mind, assuming barrel shifter functionality and 32-bit processing, so it will likely be very slow on the 68000.
+
+- I received permission via email to use Akira Yanagisawa's pics source files. I would like to express my gratitude to him.
+
+- Akira Yanagisawa has requested a splitting function, but I am currently unable to get around to it. (__)
+
+- Abebe requested that the line number be displayed during conversion.
+
+- This archive does not contain enough files to completely reconstruct BMP2PIC. (malloc, cshwild.a etc.)
+
+- You are free to reproduce the entire contents of this archive.
+
+- Modifications are permitted within reasonable limits (such as documenting revisions).
+(We do plan to update the version, but we cannot guarantee that we will.)
+
+- We are not responsible for any damage caused by using this program. <(_ _)>
+
+NIFTY-Serve PAF03012
+by Arimac
+[EOF]
